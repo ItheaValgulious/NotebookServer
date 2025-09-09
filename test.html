@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Image Upload Tester</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        input, button {
+            padding: 10px;
+            font-size: 16px;
+        }
+        #response {
+            border: 1px solid #ccc;
+            padding: 15px;
+            min-height: 100px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>API Image Upload Tester</h2>
+        <input type="file" id="imageInput" accept="image/*">
+        <input type="text" id="tokenInput" placeholder="Enter token">
+        <button type="button" id="uploadButton">Upload Image</button>
+        <div>
+            <h3>Response:</h3>
+            <div id="response">No response yet</div>
+        </div>
+    </div>
+
+    <script>
+        // 添加事件监听器
+        document.getElementById('uploadButton').addEventListener('click', async (event) => {
+            event.preventDefault(); // 阻止默认行为
+            event.stopPropagation(); // 阻止事件冒泡
+            console.log('Button clicked, starting upload...'); // 调试信息
+            await uploadImage();
+        });
+
+        async function uploadImage() {
+            const imageInput = document.getElementById('imageInput');
+            const tokenInput = document.getElementById('tokenInput');
+            const responseDiv = document.getElementById('response');
+
+            // 检查输入
+            if (!imageInput.files[0]) {
+                responseDiv.textContent = 'Please select an image.';
+                console.log('No image selected');
+                return;
+            }
+
+            if (!tokenInput.value) {
+                responseDiv.textContent = 'Please enter a token.';
+                console.log('No token provided');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('img', imageInput.files[0]);
+            console.log('FormData prepared, sending request...'); // 调试信息
+
+            try {
+                const response = await fetch(`http://127.0.0.1:8000/picture/?token=${encodeURIComponent(tokenInput.value)}`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                console.log('Fetch response received:', response); // 调试信息
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+
+                // 假设返回的是 JSON 格式
+                const result = await response.json();
+                responseDiv.textContent = JSON.stringify(result, null, 2);
+                console.log('Response data:', result); // 调试信息
+            } catch (error) {
+                responseDiv.textContent = `Error: ${error.message}`;
+                console.error('Fetch error:', error); // 调试信息
+            }
+        }
+    </script>
+</body>
+</html>
