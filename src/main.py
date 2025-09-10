@@ -1,4 +1,5 @@
 import uuid
+import zipfile
 import json
 import os
 from fastapi import FastAPI, Query, Request, HTTPException
@@ -203,7 +204,7 @@ async def read(path: str, token: str = Query(None)):
         raise HTTPException(400, "Unknown type")
 
 @app.post("/file/{path:path}")
-async def write(path: str, request: Request, token: str = Query(None)):
+async def write(path: str, request: Request, token: str = Query(None),type:str=Query('file')):
     username = get_username(token)
     if not username:
         raise HTTPException(401, "Invalid token")
@@ -222,7 +223,7 @@ async def write(path: str, request: Request, token: str = Query(None)):
             return {"status": "succeed"}
         else:
             raise HTTPException(400, "Cannot write to folder")
-    # Create new file, create parents if needed
+    # Create new file/folder, create parents if needed
     parent_path, name = os.path.split(path)
     if not name:
         raise HTTPException(400, "Invalid path")
@@ -235,20 +236,37 @@ async def write(path: str, request: Request, token: str = Query(None)):
     for child in parent["children"]:
         if child["path"].split("/")[-1] == name:
             raise HTTPException(409, "Name already exists")
-    # Create new file
-    new_id = uuid.uuid4().hex
+    
+    # Create new node
     new_path = (parent["path"] if parent["path"] == "/" else parent["path"] + "/") + name
-    new_node = {
-        "type": "file",
-        "path": new_path,
-        "id": new_id,
-        "children": []
-    }
-    parent["children"].append(new_node)
-    save_structure(username, structure)
-    with open(f"data/{username}/{new_id}", "w") as f:
-        f.write(content)
-    return {"status": "succeed"}
+    
+    if type == "folder":
+        if content:  # Body should be empty for folder creation
+            raise HTTPException(400, "Folder creation requires empty body")
+        # Create new folder
+        new_node = {
+            "type": "folder",
+            "path": new_path,
+            "id": "",  # Folders don't need file IDs
+            "children": []
+        }
+        parent["children"].append(new_node)
+        save_structure(username, structure)
+        return {"status": "succeed"}
+    else:
+        # Create new file
+        new_id = uuid.uuid4().hex
+        new_node = {
+            "type": "file",
+            "path": new_path,
+            "id": new_id,
+            "children": []
+        }
+        parent["children"].append(new_node)
+        save_structure(username, structure)
+        with open(f"data/{username}/{new_id}", "w") as f:
+            f.write(content)
+        return {"status": "succeed"}
 
 @app.post("/rename/file/{oldpath:path}")
 async def rename(oldpath: str, newpath: str = Query(None), token: str = Query(None)):
@@ -334,6 +352,46 @@ async def get_picture(picture_id: str):
     if not os.path.exists(pic_path):
         raise HTTPException(404, "Picture not found")
     return FileResponse(pic_path, media_type="image/jpeg")
+
+@app.get("/download")
+async def download(token: str = Query(None)):
+    username = get_username(token)
+    if not username:
+        raise HTTPException(401, "Invalid token")
+    structure = load_structure(username)
+    if not structure:
+        return {"status": "failed"}
+    # Create a zip file
+    zip_path = f"data/{username}.zip"
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        # Add files from the structure with their original paths
+        def add_files_to_zip(node, current_path=""):
+            if node["type"] == "file":
+                # Get the actual file content from data/{username}/{node['id']}
+                file_content_path = f"data/{username}/{node['id']}"
+                if os.path.exists(file_content_path):
+                    # Use the original path from the structure
+                    zip_path_in_archive = node["path"].lstrip("/")
+                    zipf.write(file_content_path, zip_path_in_archive)
+            elif node["type"] == "folder":
+                # Recursively add children
+                for child in node.get("children", []):
+                    add_files_to_zip(child)
+        
+        # Start adding files from the root structure
+        add_files_to_zip(structure)
+        
+        # Add all pictures from data/pictures directory
+        pictures_dir = "data/pictures"
+        if os.path.exists(pictures_dir):
+            for picture_file in os.listdir(pictures_dir):
+                picture_path = os.path.join(pictures_dir, picture_file)
+                if os.path.isfile(picture_path):
+                    # Only add pictures that belong to this user (pictures are named as username_uuid)
+                    if picture_file.startswith(username + "_"):
+                        zipf.write(picture_path, f"pictures/{picture_file}")
+    
+    return FileResponse(zip_path, media_type="application/zip", filename=f"{username}.zip")
 
 if __name__ == "__main__":
     import uvicorn
